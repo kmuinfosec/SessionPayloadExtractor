@@ -23,8 +23,9 @@ void SessionPayloadExtractor::save_session_payloads(std::string _savePath){
                 std::cerr << "Error while writing result !!" << std::endl;
                 exit(1);
             }
-            ofs << it2->second;
+            ofs.write((char*)&(it2->second.first)[0], it2->second.second);
             ofs.close();
+            free(it2->second.first);
         }
     }
 }
@@ -64,12 +65,13 @@ void SessionPayloadExtractor::init_session_index(){
             std::string flow_id = splitData[columnMap["pr"]]+"_"+splitData[columnMap["sa"]]+"_"+splitData[columnMap["sp"]]+"_"+splitData[columnMap["da"]]+"_"+splitData[columnMap["dp"]];
             std::string ts = splitData[columnMap["ts"]];
             std::string te = splitData[columnMap["te"]];
-            session_map[flow_id].push_back(std::make_pair(ts + "_" + te, ""));
+            unsigned char* dataPtr = (unsigned char*)malloc(0);
+            session_map[flow_id].push_back(std::make_pair(ts + "_" + te, std::make_pair(dataPtr, 0)));
         }
     }
-    for(auto it=session_map.begin(); it != session_map.end(); it++){
-        sort(it->second.begin(), it->second.end());
-    }
+    // for(auto it=session_map.begin(); it != session_map.end(); it++){
+    //     sort(it->second.begin(), it->second.end());
+    // }
 }
 
 void SessionPayloadExtractor::insert_payload_to_index(){
@@ -88,21 +90,21 @@ void SessionPayloadExtractor::insert_payload_to_index(){
 }
 
 void pktHandler(u_char* userData, const struct pcap_pkthdr* pkthdr, const u_char* packet) {
+
     index_t *sessionMap = (index_t *) userData;
     const struct ether_header* ethernetHeader;
     const struct ip* ipHeader;
     const struct tcphdr* tcpHeader;
     char sourceIp[INET_ADDRSTRLEN];
     char destIp[INET_ADDRSTRLEN];
-    std::string ptc;
-    u_int sourcePort, destPort;
+    std::string ptc, sip, dip, sport, dport;
     u_char *data;
     int dataLength = 0;
-    ethernetHeader = (struct ether_header*)packet;
     char timeBuf[20];
     strftime(timeBuf, 20, "%Y-%m-%d %H:%M:%S", localtime(&pkthdr->ts.tv_sec));
     std::string td = std::string(timeBuf);
-
+    
+    ethernetHeader = (struct ether_header*)packet;
     if (ntohs(ethernetHeader->ether_type) == ETHERTYPE_IP) {
         ipHeader = (struct ip*)(packet + sizeof(struct ether_header));
         inet_ntop(AF_INET, &(ipHeader->ip_src), sourceIp, INET_ADDRSTRLEN);
@@ -115,44 +117,46 @@ void pktHandler(u_char* userData, const struct pcap_pkthdr* pkthdr, const u_char
                 ptc = "UDP";
             }
             tcpHeader = (tcphdr*)(packet + sizeof(struct ether_header) + sizeof(struct ip));
-            sourcePort = ntohs(tcpHeader->source);
-            destPort = ntohs(tcpHeader->dest);
+            sport = std::to_string(ntohs(tcpHeader->source));
+            dport = std::to_string(ntohs(tcpHeader->dest));
             data = (u_char*)(packet + sizeof(struct ether_header) + sizeof(struct ip) + sizeof(struct tcphdr));
             dataLength = pkthdr->len - (sizeof(struct ether_header) + sizeof(struct ip) + sizeof(struct tcphdr));
 
-            std::string flow_id = ptc+"_"+std::string(sourceIp)+"_"+std::to_string(sourcePort)+"_"+std::string(destIp)+"_"+std::to_string(destPort);
-            std::string flow_id_inv = ptc+"_"+std::string(destIp)+"_"+std::to_string(destPort)+"_"+std::string(sourceIp)+"_"+std::to_string(sourcePort);
+            std::string flow_id = ptc+"_"+std::string(sourceIp)+"_"+sport+"_"+std::string(destIp)+"_"+dport;
+            std::string flow_id_inv = ptc+"_"+std::string(destIp)+"_"+dport+"_"+std::string(sourceIp)+"_"+sport;
             bool is_find = false;
             if (sessionMap->find(flow_id) != sessionMap->end()){
-                for(auto it = (*sessionMap)[flow_id].begin(); it != (*sessionMap)[flow_id].end(); it++){
-                    std::istringstream ss(it->first);
-                    std::string splitBuffer;
-                    getline(ss, splitBuffer, '_');
-                    std::string ts = splitBuffer;
-                    getline(ss, splitBuffer, '_');
-                    std::string te = splitBuffer;
-                    if(ts <= td && td <= te){
-                        it->second = it->second+std::string(reinterpret_cast<const char *>(&data), dataLength);
-                        is_find = true;
-                        break;
-                    }
-                }
+                is_find = updatePayload(sessionMap, flow_id, td, data, dataLength);
             }
             if (!is_find && (sessionMap->find(flow_id_inv) != sessionMap->end())){
-                for(auto it = (*sessionMap)[flow_id_inv].begin(); it != (*sessionMap)[flow_id_inv].end(); it++){
-                    std::istringstream ss(it->first);
-                    std::string splitBuffer;
-                    getline(ss, splitBuffer, '_');
-                    std::string ts = splitBuffer;
-                    getline(ss, splitBuffer, '_');
-                    std::string te = splitBuffer;
-                    if(ts <= td && td <= te){
-                        it->second = it->second+static_cast<std::string>(reinterpret_cast<const char *>(data));
-                        is_find = true;
-                        break;
-                    }
-                }
+                updatePayload(sessionMap, flow_id_inv, td, data, dataLength);
             }
         }
     }
+}
+
+bool updatePayload(index_t *sessionMap, std::string flow_id, std::string td, unsigned char* data, int dataLength){
+    for(auto it = (*sessionMap)[flow_id].begin(); it != (*sessionMap)[flow_id].end(); it++){
+        std::istringstream ss(it->first);
+        std::string splitBuffer;
+        getline(ss, splitBuffer, '_');
+        std::string ts = splitBuffer;
+        getline(ss, splitBuffer, '_');
+        std::string te = splitBuffer;
+        if(ts <= td && td <= te){
+            unsigned char* tmpDataPtr;
+            tmpDataPtr = (unsigned char*)realloc(it->second.first, sizeof(unsigned char)*(it->second.second+dataLength));
+            if(tmpDataPtr==NULL){
+                // failed to realloc memory
+                break;
+            }
+            it->second.first = tmpDataPtr;
+            for(long dataIdx=0; dataIdx<dataLength; dataIdx++){
+                it->second.first[it->second.second+dataIdx] = data[dataIdx];
+            }
+            it->second.second = it->second.second+dataLength;
+            return true;
+        } 
+    }
+    return false;
 }

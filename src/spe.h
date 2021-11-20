@@ -2,7 +2,7 @@
 #define __SPE_H__
 #include "common.h"
 
-typedef std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>> index_t;
+typedef std::unordered_map<std::string, std::vector<std::pair<std::string, std::pair<unsigned char*, long>>>> index_t;
 
 class SessionPayloadExtractor{
 private:
@@ -17,4 +17,5 @@ public:
 };
 
 void pktHandler(u_char* userData, const struct pcap_pkthdr* pkthdr, const u_char* packet);
+bool updatePayload(index_t *sessionMap, std::string flow_id, std::string td, unsigned char* data, int dataLength);
 #endif
