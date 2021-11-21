@@ -2,7 +2,7 @@
 #define __SPE_H__
 #include "common.h"
 
-typedef std::unordered_map<std::string, std::vector<std::pair<std::string, std::pair<unsigned char*, long>>>> index_t;
+typedef std::unordered_map<std::string, std::vector<std::pair<std::string, std::vector<unsigned char>>>> index_t;
 
 class SessionPayloadExtractor{
 private:

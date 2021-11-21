@@ -23,9 +23,8 @@ void SessionPayloadExtractor::save_session_payloads(std::string _savePath){
                 std::cerr << "Error while writing result !!" << std::endl;
                 exit(1);
             }
-            ofs.write((char*)&(it2->second.first)[0], it2->second.second);
+            ofs.write((char*)&(it2->second[0]), it2->second.size());
             ofs.close();
-            free(it2->second.first);
         }
     }
 }
@@ -66,7 +65,7 @@ void SessionPayloadExtractor::init_session_index(){
             std::string ts = splitData[columnMap["ts"]];
             std::string te = splitData[columnMap["te"]];
             unsigned char* dataPtr = (unsigned char*)malloc(0);
-            session_map[flow_id].push_back(std::make_pair(ts + "_" + te, std::make_pair(dataPtr, 0)));
+            session_map[flow_id].push_back(std::make_pair(ts + "_" + te, std::vector<unsigned char>()));
         }
     }
     // for(auto it=session_map.begin(); it != session_map.end(); it++){
@@ -90,7 +89,6 @@ void SessionPayloadExtractor::insert_payload_to_index(){
 }
 
 void pktHandler(u_char* userData, const struct pcap_pkthdr* pkthdr, const u_char* packet) {
-
     index_t *sessionMap = (index_t *) userData;
     const struct ether_header* ethernetHeader;
     const struct ip* ipHeader;
@@ -144,17 +142,7 @@ bool updatePayload(index_t *sessionMap, std::string flow_id, std::string td, uns
         getline(ss, splitBuffer, '_');
         std::string te = splitBuffer;
         if(ts <= td && td <= te){
-            unsigned char* tmpDataPtr;
-            tmpDataPtr = (unsigned char*)realloc(it->second.first, sizeof(unsigned char)*(it->second.second+dataLength));
-            if(tmpDataPtr==NULL){
-                // failed to realloc memory
-                break;
-            }
-            it->second.first = tmpDataPtr;
-            for(long dataIdx=0; dataIdx<dataLength; dataIdx++){
-                it->second.first[it->second.second+dataIdx] = data[dataIdx];
-            }
-            it->second.second = it->second.second+dataLength;
+            it->second.insert(it->second.end(), data, data+dataLength);
             return true;
         } 
     }
