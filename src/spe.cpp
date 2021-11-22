@@ -18,6 +18,9 @@ void SessionPayloadExtractor::save_session_payloads(std::string _savePath){
                     time_info += c;
                 }
             }
+            if(it2->second.size() == 0){
+                continue;
+            }
             std::ofstream ofs(_savePath+"/"+it->first+"_"+time_info+".json");
             if (ofs.fail()){
                 std::cerr << "Error while writing result !!" << std::endl;
@@ -56,10 +59,6 @@ void SessionPayloadExtractor::init_session_index(){
                 ltrim(splitBuffer);
                 rtrim(splitBuffer);
                 splitData.push_back(splitBuffer);
-            }
-            std::string label = splitData[columnMap["Label"]];
-            if (!(label.rfind("Benign", 0) == 0) && !(label.rfind("Transfer", 0) == 0)){
-                continue;
             }
             std::string flow_id = splitData[columnMap["pr"]]+"_"+splitData[columnMap["sa"]]+"_"+splitData[columnMap["sp"]]+"_"+splitData[columnMap["da"]]+"_"+splitData[columnMap["dp"]];
             std::string ts = splitData[columnMap["ts"]];
